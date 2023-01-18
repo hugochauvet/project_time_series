@@ -1,0 +1,50 @@
+---
+title: "Projet TS"
+author: "Chauvet Hugo"
+date: "2023-01-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library('forecast')
+library('ggplot2')
+```
+
+# Présentation des données
+
+
+On a récupéré sur kaggle le nombre de recherche sur google de 200 aliments pour chaque semaine depuis 2004.
+```{r}
+df.food <- read.table("food_research.csv", sep = ',', header = TRUE)
+df.food <- df.food[,-2]
+df.food
+```
+
+Voici tous les aliments dans notre jeu de données.
+```{r}
+unique(df.food['id'])
+```
+
+
+On va pouvoir sélectionner certains aliments afin d'analyser leurs données.
+On commence avec les glaces.
+
+```{r}
+create_ts <- function(food, plot = TRUE) {
+  df <- df.food[df.food$id == food,]
+  ts.food <- ts(df, frequency = 52, start = c(2004,1), end = c(2016,12))
+  if (plot == TRUE) {
+    plot.ts(ts.food[,3])
+  }
+  return(ts.food[,3])
+}
+```
+
+```{r}
+ts.ice_cream <- create_ts('chocolate')
+```
+
