@@ -34,17 +34,182 @@ On va pouvoir sélectionner certains aliments afin d'analyser leurs données.
 On commence avec les glaces.
 
 ```{r}
-create_ts <- function(food, plot = TRUE) {
+create_ts <- function(food, plot = TRUE, acf =FALSE, decompose =FALSE, zoom = FALSE) {
   df <- df.food[df.food$id == food,]
-  ts.food <- ts(df, frequency = 52, start = c(2004,1), end = c(2016,12))
+  ts.food <- ts(df, frequency = 52, start = c(2004,1), end = c(2016,52))
+  
   if (plot == TRUE) {
-    plot.ts(ts.food[,3])
+    plot.ts(ts.food[,3], 
+            main = paste("Time Serie of",food, "between 2004 and 2016"), cex.main = 1) 
   }
+  
+  if (decompose == TRUE) {
+    plot(decompose(ts.food[,3]))
+  }
+  if (acf == TRUE) {
+    acf(ts.food[,3])
+  }
+
+  if (length(zoom) == 2) {
+    if (min(zoom[1],zoom[2]) >= 2004 & max(zoom[1],zoom[2]) <= 2016) {
+    zoomD <- ts(df, frequency = 52,
+                start = c(min(zoom[1],zoom[2]),1), 
+                end = c(max(zoom[1],zoom[2]),1))
+    plot.ts(zoomD[,3],
+            main = paste("Zoom entre",min(zoom[1],zoom[2]),"et",max(zoom[1],zoom[2])))
+    }
+  }
+  
   return(ts.food[,3])
 }
 ```
 
 ```{r}
-ts.ice_cream <- create_ts('chocolate')
+X <- create_ts('chocolate', zoom = c(2014,2016))
 ```
 
+On va retirer la saisonalité de notre série :
+
+```{r}
+d <- decompose(X)
+ts_NS <- X - d$seasonal
+plot(decompose(ts_NS))
+```
+
+
+
+
+
+```{r}
+forecast_type <- function(X, type, IC = F) {
+  
+  # Sets
+  train_set <- head(X, length(X) - 104)
+  test_set <- tail(X, 104)
+  
+  # Forecasting
+  if (type == 'LES') {
+    HW <- HoltWinters(train_set, beta=FALSE, gamma=FALSE)
+    p <- predict(HW, n.ahead = length(test_set))
+    RMSE <- sqrt(mean((p-test_set)^2))
+  }
+  else if (type == 'LED') {
+    alp_opt<-(1:199)/200
+    length(alp_opt)
+    RMSE_LED <- rep(0,199)
+    for (k in (1:199))
+    {
+      HW <- HoltWinters(cac_train,alpha=alp_opt[k]*(2-alp_opt[k]),beta=alp_opt[k]/(2-alp_opt[k]),gamma=FALSE)
+      p <- predict(HW, n.ahead=169)
+      RMSE_LED[k] <- sqrt(mean((pd-test_set)^2))
+    }  
+    alp <- which((RMSE_LED<=min(RMSE_LED))==TRUE)*(1/200)
+    abline(v=alp,lty=2)
+    HW <- HoltWinters(cac_train,alpha=alp*(2-alp),
+                      beta=alp/(2-alp),gamma=FALSE)
+    p <- predict(HW,n.ahead=169,prediction.interval = TRUE)
+    RMSE <- sqrt(mean(p[,1]-test_set)^2)
+  }
+  else if (type == 'HWNS') {
+    HW <- HoltWinters(train_set, gamma = F)
+    p <- predict(HW, n.ahead = length(test_set))
+    RMSE <- sqrt(mean((p-test_set)^2))
+  }
+  else if (type == 'HWSA') {
+    HW <- HoltWinters(train_set, seasonal = "additive")
+    p <- predict(HW, n.ahead = length(test_set))
+    RMSE <- sqrt(mean((p-test_set)^2))
+  }
+  else if (type == 'HWSM') {
+    HW <- HoltWinters(train_set, seasonal = "multiplicative")
+    p <- predict(HW, n.ahead = length(test_set))
+    RMSE <- sqrt(mean((p-test_set)^2))
+  }
+  # Plot
+  plot(HW, main =" Prévisions  de janv. 2004 à déc. 2020", ylab = "obs. (noir)/ ajus. (rouge)", xlim = c(2004,2020))
+  p <- predict(HW, n.ahead = 50*12, prediction.interval = TRUE)
+  lines(p[,1],lty=2,col=2)
+  if (IC == T) {
+    lines(p[,2],lty=2,col=3)
+    lines(p[,3],lty=2,col=3) }
+  abline(v=2015)
+}
+```
+
+```{r}
+par(mfrow = c(2,1))
+forecast_type(X, type = 'HWSM', IC = F)
+forecast_type(X, type = 'HWSA', IC = F)
+```
+
+```{r}
+best_lissage <- function(food) {
+  
+  df <- df.food[df.food$id == food,]
+  serie <- ts(df, frequency = 52, start = c(2004,1), end = c(2016,52))[,3]
+  
+  tr1<-head(serie, as.integer(length(serie)*0.8) )
+  tt1<-tail(serie, as.integer(length(serie)*0.2) )
+
+
+  #lissage exponentiel simple-------------------------------LES----------------------------------
+  
+  LES=HoltWinters(tr1,beta=FALSE,gamma=FALSE)
+  ps<-predict(LES, n.ahead =as.integer(length(serie)*0.2))
+  RMSE_LES=sqrt(mean( (ps-tt1)^2))
+  
+  
+  
+  #lissage exponentiel double--------------------------------LED---------------------------------
+ 
+  alp_opt<-(1:199)/200
+  RMSE_LED=rep(0,199)
+  for (k in (1:199)) {
+    LED=HoltWinters(tr1,alpha=alp_opt[k]*(2-alp_opt[k]),
+                    beta=alp_opt[k]/(2-alp_opt[k]),gamma=FALSE)
+    pd<-predict(LED, n.ahead=as.integer(length(serie)*0.2))
+    RMSE_LED[k]=sqrt(mean( (pd-tt1)^2) )
+  }
+  
+  alp = which((RMSE_LED<=min(RMSE_LED))==TRUE)*0.1  #meilleur lissage à 10^-1 près pour LED
+  LED=HoltWinters(tr1, alpha=alp*(2-alp) , beta=alp/(2-alp),gamma=FALSE)
+  pd<-predict(LED, n.ahead= as.integer(length(serie)*0.2))
+  RMSE_LED=sqrt(mean((pd-tt1)^2))
+  
+  
+  #lissage de HoltWinters non saisonnier------------------------HWNS------------------------------
+ 
+  HWNS=HoltWinters(tr1,gamma=FALSE)
+  pns<-predict(HWNS, n.ahead=as.integer(length(serie)*0.2))
+  RMSE_HWNS=sqrt(mean((pns-tt1)^2)) 
+  
+  
+  #lissage de HoltWinters  saisonnier additif--------------------HWSA-----------------------------
+ 
+  HWSA=HoltWinters(tr1,seasonal = "additive")
+  psa<-predict(HWSA, n.ahead=as.integer(length(serie)*0.2))
+  RMSE_HWSA=sqrt(mean((psa-tt1)^2))
+  
+  
+  #lissage de HoltWinters  saisonnier multiplicatif----------------HWSM---------------------------
+ 
+  HWSM=HoltWinters(tr1,seasonal = "multiplicative")
+  psm<-predict(HWSM, n.ahead=as.integer(length(serie)*0.2))
+  RMSE_HWSM=sqrt(mean( (psm-tt1)^2 )) 
+  
+  
+  #resultats -----------------------------------------------------------------------------------
+
+   cbind(c("LES","LED","HWNS","HWSA","HWSM"),
+   c(RMSE_LES, RMSE_LED, RMSE_HWNS,  RMSE_HWSA, RMSE_HWSM))
+  
+
+ 
+
+}
+```
+
+
+```{r}
+best_lissage("chocolate") 
+```
